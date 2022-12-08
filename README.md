@@ -1,4 +1,4 @@
-# Arborea
+# Quercus
 
 A rich, ergonomic parsing library based on Tree-sitter.
 

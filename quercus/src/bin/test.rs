@@ -1,4 +1,4 @@
-use arborea::{dsl, Rule};
+use quercus::{dsl, Rule};
 
 #[derive(Rule)]
 #[rule(string = "{")]

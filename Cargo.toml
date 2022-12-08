@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "arborea",
-    "arborea_derive",
-    "arborea_dsl",
+    "quercus",
+    "quercus_derive",
+    "quercus_dsl",
 ]

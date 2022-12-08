@@ -6,7 +6,7 @@ use syn::{
     MetaNameValue, NestedMeta, TypePath, TypeTuple,
 };
 
-use arborea_dsl as dsl;
+use quercus_dsl as dsl;
 
 extern crate proc_macro;
 
@@ -135,7 +135,7 @@ pub fn derive_rule(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 fn generate_rule_impl(ident: &Ident, emit_impl: TokenStream) -> TokenStream {
     quote_spanned! { ident.span() =>
         impl Rule for #ident {
-            fn emit() -> arborea::dsl::Rule {
+            fn emit() -> quercus::dsl::Rule {
                 #emit_impl
             }
         }
@@ -145,15 +145,15 @@ fn generate_rule_impl(ident: &Ident, emit_impl: TokenStream) -> TokenStream {
 /// Given a `Rule`, create the `TokenStream` that evaluates to it.
 fn rule_to_token_stream(span: Span, rule: &dsl::Rule) -> TokenStream {
     match rule {
-        dsl::Rule::Blank => quote_spanned! { span => arborea::dsl::Rule::Blank },
+        dsl::Rule::Blank => quote_spanned! { span => quercus::dsl::Rule::Blank },
         dsl::Rule::String(dsl::StringRule { value }) => {
-            quote_spanned! { span => arborea::dsl::Rule::string(#value.into()) }
+            quote_spanned! { span => quercus::dsl::Rule::string(#value.into()) }
         }
         dsl::Rule::Pattern(dsl::PatternRule { value }) => {
-            quote_spanned! { span => arborea::dsl::Rule::pattern(#value.into()) }
+            quote_spanned! { span => quercus::dsl::Rule::pattern(#value.into()) }
         }
         dsl::Rule::Symbol(dsl::SymbolRule { name }) => {
-            quote_spanned! { span => arborea::dsl::Rule::symbol(#name.into()) }
+            quote_spanned! { span => quercus::dsl::Rule::symbol(#name.into()) }
         }
         dsl::Rule::Seq(dsl::SeqRule { members }) => {
             let member_tokens = members
@@ -161,7 +161,7 @@ fn rule_to_token_stream(span: Span, rule: &dsl::Rule) -> TokenStream {
                 .map(|m| rule_to_token_stream(span, m))
                 .collect::<Vec<_>>();
             quote_spanned! { span =>
-                arborea::dsl::Rule::seq(
+                quercus::dsl::Rule::seq(
                     core::iter::empty()
                         #(.chain(#member_tokens))*
                 )
@@ -173,7 +173,7 @@ fn rule_to_token_stream(span: Span, rule: &dsl::Rule) -> TokenStream {
                 .map(|m| rule_to_token_stream(span, m))
                 .collect::<Vec<_>>();
             quote_spanned! { span =>
-                arborea::dsl::Rule::choice(
+                quercus::dsl::Rule::choice(
                     core::iter::empty()
                         #(.chain(#member_tokens))*
                 )
@@ -182,22 +182,22 @@ fn rule_to_token_stream(span: Span, rule: &dsl::Rule) -> TokenStream {
 
         dsl::Rule::Repeat(dsl::RepeatRule { content }) => {
             let content_tokens = rule_to_token_stream(span, &content);
-            quote_spanned! { span => arborea::dsl::Rule::repeat(#content_tokens) }
+            quote_spanned! { span => quercus::dsl::Rule::repeat(#content_tokens) }
         }
 
         dsl::Rule::Repeat1(dsl::Repeat1Rule { content }) => {
             let content_tokens = rule_to_token_stream(span, &content);
-            quote_spanned! { span => arborea::dsl::Rule::repeat1(#content_tokens) }
+            quote_spanned! { span => quercus::dsl::Rule::repeat1(#content_tokens) }
         }
 
         dsl::Rule::Token(dsl::TokenRule { content }) => {
             let content_tokens = rule_to_token_stream(span, &content);
-            quote_spanned! { span => arborea::dsl::Rule::token(#content_tokens) }
+            quote_spanned! { span => quercus::dsl::Rule::token(#content_tokens) }
         }
 
         dsl::Rule::ImmediateToken(dsl::ImmediateTokenRule { content }) => {
             let content_tokens = rule_to_token_stream(span, &content);
-            quote_spanned! { span => arborea::dsl::Rule::immediate_token(#content_tokens) }
+            quote_spanned! { span => quercus::dsl::Rule::immediate_token(#content_tokens) }
         }
 
         dsl::Rule::Alias(dsl::AliasRule {
@@ -208,9 +208,9 @@ fn rule_to_token_stream(span: Span, rule: &dsl::Rule) -> TokenStream {
             let content_tokens = rule_to_token_stream(span, &content);
 
             if *named {
-                quote_spanned! { span => arborea::dsl::Rule::named_alias(#value, #content_tokens) }
+                quote_spanned! { span => quercus::dsl::Rule::named_alias(#value, #content_tokens) }
             } else {
-                quote_spanned! { span => arborea::dsl::Rule::anonymous_alias(#value, #content_tokens) }
+                quote_spanned! { span => quercus::dsl::Rule::anonymous_alias(#value, #content_tokens) }
             }
         }
 
@@ -218,7 +218,7 @@ fn rule_to_token_stream(span: Span, rule: &dsl::Rule) -> TokenStream {
             let rule_tokens = rule_to_token_stream(span, &rule);
             let name = name.clone();
 
-            quote_spanned! { span => arborea::dsl::Rule::field(#name, #rule_tokens) }
+            quote_spanned! { span => quercus::dsl::Rule::field(#name, #rule_tokens) }
         }
     }
 }
@@ -511,7 +511,7 @@ fn derive_seq_rule(ident: &Ident, attrs: Vec<Attribute>, fields: FieldsNamed) ->
 
                 quote_spanned! { field.ty.span() =>
                     #from_str_check
-                    arborea::dsl::Rule::string(#lit.into())
+                    quercus::dsl::Rule::string(#lit.into())
                 }
             }
 
@@ -525,23 +525,23 @@ fn derive_seq_rule(ident: &Ident, attrs: Vec<Attribute>, fields: FieldsNamed) ->
 
                 quote_spanned! { field.ty.span() =>
                     {#from_str_check
-                    arborea::dsl::Rule::string(#lit.into())}
+                    quercus::dsl::Rule::string(#lit.into())}
                 }
             }
 
             Some(FieldRuleProp::Repeat) => {
                 quote_spanned! { field.ty.span() =>
-                    <#field_ty as arborea::Repeat>::emit_repeat()
+                    <#field_ty as quercus::Repeat>::emit_repeat()
                 }
             }
 
             Some(FieldRuleProp::Repeat1) => {
                 quote_spanned! { field.ty.span() =>
-                    <#field_ty as arborea::Repeat>::emit_repeat1()
+                    <#field_ty as quercus::Repeat>::emit_repeat1()
                 }
             }
 
-            None => quote_spanned! { field.ty.span() => <#field_ty as arborea::Rule>::emit() },
+            None => quote_spanned! { field.ty.span() => <#field_ty as quercus::Rule>::emit() },
         };
 
         // TODO: attr to allow changing field name
@@ -562,7 +562,7 @@ fn derive_seq_rule(ident: &Ident, attrs: Vec<Attribute>, fields: FieldsNamed) ->
     let members = builder.members;
 
     quote_spanned! { ident.span() =>
-        arborea::dsl::Rule::seq(
+        quercus::dsl::Rule::seq(
             core::iter::empty()
                 #(.chain(core::iter::once(#members)))*
         )

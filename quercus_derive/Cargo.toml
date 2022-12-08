@@ -1,14 +1,14 @@
 [package]
-name = "arborea_derive"
+name = "quercus_derive"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "arborea_derive"
+name = "quercus_derive"
 proc-macro = true
 
 [dependencies]
-arborea_dsl = { path = "../arborea_dsl" }
+quercus_dsl = { path = "../quercus_dsl" }
 proc-macro-error = "1.0.4"
 proc-macro2 = "1.0.47"
 quote = "1.0.21"

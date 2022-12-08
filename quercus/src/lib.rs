@@ -1,12 +1,12 @@
 use tree_sitter as ts;
 
 #[macro_use]
-extern crate arborea_derive;
+extern crate quercus_derive;
 
-pub use arborea_derive::*;
+pub use quercus_derive::*;
 
 pub mod dsl {
-    pub use arborea_dsl::*;
+    pub use quercus_dsl::*;
 }
 
 pub struct Span {
