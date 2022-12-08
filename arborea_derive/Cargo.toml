@@ -1,0 +1,15 @@
+[package]
+name = "arborea_derive"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "arborea_derive"
+proc-macro = true
+
+[dependencies]
+arborea_dsl = { path = "../arborea_dsl" }
+proc-macro-error = "1.0.4"
+proc-macro2 = "1.0.47"
+quote = "1.0.21"
+syn = { version = "1.0.105", features = ["extra-traits"] }
