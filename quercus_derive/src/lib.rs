@@ -142,87 +142,6 @@ fn generate_rule_impl(ident: &Ident, emit_impl: TokenStream) -> TokenStream {
     }
 }
 
-/// Given a `Rule`, create the `TokenStream` that evaluates to it.
-fn rule_to_token_stream(span: Span, rule: &dsl::Rule) -> TokenStream {
-    match rule {
-        dsl::Rule::Blank => quote_spanned! { span => quercus::dsl::Rule::Blank },
-        dsl::Rule::String(dsl::StringRule { value }) => {
-            quote_spanned! { span => quercus::dsl::Rule::string(#value.into()) }
-        }
-        dsl::Rule::Pattern(dsl::PatternRule { value }) => {
-            quote_spanned! { span => quercus::dsl::Rule::pattern(#value.into()) }
-        }
-        dsl::Rule::Symbol(dsl::SymbolRule { name }) => {
-            quote_spanned! { span => quercus::dsl::Rule::symbol(#name.into()) }
-        }
-        dsl::Rule::Seq(dsl::SeqRule { members }) => {
-            let member_tokens = members
-                .iter()
-                .map(|m| rule_to_token_stream(span, m))
-                .collect::<Vec<_>>();
-            quote_spanned! { span =>
-                quercus::dsl::Rule::seq(
-                    core::iter::empty()
-                        #(.chain(#member_tokens))*
-                )
-            }
-        }
-        dsl::Rule::Choice(dsl::ChoiceRule { members }) => {
-            let member_tokens = members
-                .iter()
-                .map(|m| rule_to_token_stream(span, m))
-                .collect::<Vec<_>>();
-            quote_spanned! { span =>
-                quercus::dsl::Rule::choice(
-                    core::iter::empty()
-                        #(.chain(#member_tokens))*
-                )
-            }
-        }
-
-        dsl::Rule::Repeat(dsl::RepeatRule { content }) => {
-            let content_tokens = rule_to_token_stream(span, &content);
-            quote_spanned! { span => quercus::dsl::Rule::repeat(#content_tokens) }
-        }
-
-        dsl::Rule::Repeat1(dsl::Repeat1Rule { content }) => {
-            let content_tokens = rule_to_token_stream(span, &content);
-            quote_spanned! { span => quercus::dsl::Rule::repeat1(#content_tokens) }
-        }
-
-        dsl::Rule::Token(dsl::TokenRule { content }) => {
-            let content_tokens = rule_to_token_stream(span, &content);
-            quote_spanned! { span => quercus::dsl::Rule::token(#content_tokens) }
-        }
-
-        dsl::Rule::ImmediateToken(dsl::ImmediateTokenRule { content }) => {
-            let content_tokens = rule_to_token_stream(span, &content);
-            quote_spanned! { span => quercus::dsl::Rule::immediate_token(#content_tokens) }
-        }
-
-        dsl::Rule::Alias(dsl::AliasRule {
-            value,
-            named,
-            content,
-        }) => {
-            let content_tokens = rule_to_token_stream(span, &content);
-
-            if *named {
-                quote_spanned! { span => quercus::dsl::Rule::named_alias(#value, #content_tokens) }
-            } else {
-                quote_spanned! { span => quercus::dsl::Rule::anonymous_alias(#value, #content_tokens) }
-            }
-        }
-
-        dsl::Rule::Field(dsl::FieldRule { name, rule }) => {
-            let rule_tokens = rule_to_token_stream(span, &rule);
-            let name = name.clone();
-
-            quote_spanned! { span => quercus::dsl::Rule::field(#name, #rule_tokens) }
-        }
-    }
-}
-
 enum RuleAttrArg {
     String(LitStr),
     Pattern(LitStr),
@@ -336,12 +255,12 @@ fn parse_rule_attr(attr: &Attribute) -> Option<Vec<(RuleAttrArg, Meta)>> {
 
 #[derive(Default)]
 struct LeafRuleBuilder {
-    rule: Option<dsl::Rule>,
+    rule: Option<TokenStream>,
 }
 
 impl LeafRuleBuilder {
-    fn set_rule_once(&mut self, rule: dsl::Rule, meta: &Meta) {
-        if let Some(old) = self.rule.as_ref() {
+    fn set_rule_once(&mut self, rule: TokenStream, meta: &Meta) {
+        if self.rule.is_some() {
             emit_error!(meta, "multiple rules specified");
         } else {
             self.rule = Some(rule);
@@ -355,10 +274,20 @@ fn derive_leaf_rule(ident: &Ident, attrs: Vec<Attribute>) -> TokenStream {
         for (arg, meta) in args {
             match arg {
                 RuleAttrArg::String(s) => {
-                    builder.set_rule_once(dsl::Rule::string(s.value()), &meta);
+                    builder.set_rule_once(
+                        quote_spanned! { meta.span() =>
+                            quercus::dsl::Rule::string(#s.into())
+                        },
+                        &meta,
+                    );
                 }
                 RuleAttrArg::Pattern(s) => {
-                    builder.set_rule_once(dsl::Rule::pattern(s.value()), &meta);
+                    builder.set_rule_once(
+                        quote_spanned! { meta.span() =>
+                            quercus::dsl::Rule::pattern(#s.into())
+                        },
+                        &meta,
+                    );
                 }
                 _ => {
                     emit_error!(&meta, "option not supported for leaf rules");
@@ -376,8 +305,7 @@ fn derive_leaf_rule(ident: &Ident, attrs: Vec<Attribute>) -> TokenStream {
         ),
     };
 
-    let emit_impl = rule_to_token_stream(ident.span(), &rule);
-    quote_spanned! { ident.span() => #emit_impl }
+    quote_spanned! { ident.span() => #rule }
 }
 
 #[derive(Default)]
