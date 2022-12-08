@@ -110,8 +110,7 @@ struct FuncArg {
 #[derive(Rule)]
 struct Ident {
     #[rule(pattern = "[a-zA-Z_][a-zA-Z0-9_]*")]
-    ident: (),
-    //ident: String,
+    ident: String,
 }
 
 #[derive(Rule)]

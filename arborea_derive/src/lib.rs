@@ -279,6 +279,13 @@ impl RuleAttrArg {
     }
 }
 
+fn is_unit(ty: &syn::Type) -> bool {
+    match ty {
+        syn::Type::Tuple(tt) => tt.elems.is_empty(),
+        _ => false,
+    }
+}
+
 /// Attempts to parse an attribute as a `#[rule(...)]` attribute.
 ///
 /// If the attribute is a rule attribute, returns a list of successfully parsed arguments to the
@@ -495,16 +502,30 @@ fn derive_seq_rule(ident: &Ident, attrs: Vec<Attribute>, fields: FieldsNamed) ->
         let field_ty = &field.ty;
         let field_rule = match field_builder.prop {
             Some(FieldRuleProp::String(lit)) => {
-                // TODO: assert type is ()
+                let from_str_check = (!is_unit(field_ty)).then(|| {
+                    quote_spanned! { field.ty.span() =>
+                        fn _from_str<T: core::str::FromStr>(_: T) {}
+                        _from_str::<#field_ty>();
+                    }
+                });
+
                 quote_spanned! { field.ty.span() =>
+                    #from_str_check
                     arborea::dsl::Rule::string(#lit.into())
                 }
             }
 
             Some(FieldRuleProp::Pattern(lit)) => {
-                // TODO: assert type is ()
+                let from_str_check = (!is_unit(field_ty)).then(|| {
+                    quote_spanned! { field.ty.span() =>
+                        fn _from_str<T: core::str::FromStr>() {}
+                        _from_str::<#field_ty>();
+                    }
+                });
+
                 quote_spanned! { field.ty.span() =>
-                    arborea::dsl::Rule::pattern(#lit.into())
+                    {#from_str_check
+                    arborea::dsl::Rule::string(#lit.into())}
                 }
             }
 
