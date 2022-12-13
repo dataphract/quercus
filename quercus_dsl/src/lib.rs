@@ -60,6 +60,7 @@ pub enum Rule {
     Seq(SeqRule),
     Choice(ChoiceRule),
     Repeat(RepeatRule),
+    #[serde(rename = "REPEAT1")]
     Repeat1(Repeat1Rule),
     Token(TokenRule),
     ImmediateToken(ImmediateTokenRule),
@@ -68,20 +69,27 @@ pub enum Rule {
 }
 
 impl Rule {
+    /// Creates a blank rule.
     pub fn blank() -> Rule {
         Rule::Blank
     }
 
-    pub fn string(value: String) -> Rule {
-        Rule::String(StringRule { value })
+    pub fn string<S: AsRef<str>>(value: S) -> Rule {
+        Rule::String(StringRule {
+            value: value.as_ref().into(),
+        })
     }
 
-    pub fn pattern(value: String) -> Rule {
-        Rule::Pattern(PatternRule { value })
+    pub fn pattern<S: AsRef<str>>(value: S) -> Rule {
+        Rule::Pattern(PatternRule {
+            value: value.as_ref().into(),
+        })
     }
 
-    pub fn symbol(name: String) -> Rule {
-        Rule::Symbol(SymbolRule { name })
+    pub fn symbol<S: AsRef<str>>(name: S) -> Rule {
+        Rule::Symbol(SymbolRule {
+            name: name.as_ref().into(),
+        })
     }
 
     pub fn seq<I>(members: I) -> Rule
@@ -166,8 +174,10 @@ pub struct PatternRule {
     pub value: String,
 }
 
+/// A rule which references a named rule in a grammar.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SymbolRule {
+    /// The name of the referenced rule.
     pub name: String,
 }
 

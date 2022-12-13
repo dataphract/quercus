@@ -1,4 +1,4 @@
-use quercus::{dsl, Rule};
+use quercus::{dsl, GrammarBuilder, Rule};
 
 #[derive(Rule)]
 #[rule(string = "{")]
@@ -6,7 +6,7 @@ struct LBrace;
 
 #[test]
 fn test_derive_unit_struct() {
-    assert_eq!(LBrace::emit(), dsl::Rule::string("{".into()));
+    assert_eq!(LBrace::emit(), dsl::Rule::string("{"));
 }
 
 #[derive(Rule)]
@@ -15,7 +15,7 @@ struct RBrace {}
 
 #[test]
 fn test_derive_empty_named_struct() {
-    assert_eq!(RBrace::emit(), dsl::Rule::string("}".into()));
+    assert_eq!(RBrace::emit(), dsl::Rule::string("}"));
 }
 
 #[derive(Rule)]
@@ -24,7 +24,7 @@ struct LParen();
 
 #[test]
 fn test_derive_empty_tuple_struct() {
-    assert_eq!(LParen::emit(), dsl::Rule::string("(".into()));
+    assert_eq!(LParen::emit(), dsl::Rule::string("("));
 }
 
 #[derive(Rule)]
@@ -46,8 +46,8 @@ fn test_derive_named_struct_leaf_fields() {
     assert_eq!(
         EmptyParens::emit(),
         dsl::Rule::seq([
-            dsl::Rule::field("left", dsl::Rule::string("(".into())),
-            dsl::Rule::field("right", dsl::Rule::string(")".into())),
+            dsl::Rule::field("left", dsl::Rule::string("(")),
+            dsl::Rule::field("right", dsl::Rule::string(")")),
         ])
     );
 }
@@ -125,7 +125,11 @@ struct Block {
 }
 
 fn main() {
+    let mut builder = GrammarBuilder::new();
     let test = Func::emit();
 
     println!("{}", serde_json::to_string_pretty(&test).unwrap());
+
+    Func::register_dependencies(&mut builder);
+    println!("{builder:#?}");
 }
