@@ -8,7 +8,6 @@ name = "quercus_derive"
 proc-macro = true
 
 [dependencies]
-quercus_dsl = { path = "../quercus_dsl" }
 proc-macro-error = "1.0.4"
 proc-macro2 = "1.0.47"
 quote = "1.0.21"

@@ -6,8 +6,6 @@ use syn::{
     TypeTuple,
 };
 
-use quercus_dsl as dsl;
-
 use crate::{meta_lit_str, meta_path_only, parse_nested_metas};
 
 pub fn derive_rule(input: DeriveInput) -> TokenStream {
@@ -231,22 +229,10 @@ impl StructRuleBuilder {
     }
 }
 
-enum FieldRuleProp {
-    String(LitStr),
-    Pattern(LitStr),
-    Repeat,
-    Repeat1,
-}
-
 struct SubruleLeaf {
     rule_meta: Meta,
     ty: Type,
     rule_impl: TokenStream,
-}
-
-struct SubruleDependency {
-    symbol_name: String,
-    symbol_rule: TokenStream,
 }
 
 enum SubruleKind {
@@ -274,28 +260,14 @@ enum SubruleKind {
 
 struct SubruleBuilder {
     field: Field,
-    name: Ident,
     subrule: Option<SubruleKind>,
-    rule: Option<dsl::Rule>,
-    prop: Option<FieldRuleProp>,
 }
 
 impl SubruleBuilder {
-    fn new(field: Field, name: Ident) -> SubruleBuilder {
+    fn new(field: Field) -> SubruleBuilder {
         SubruleBuilder {
             field,
-            name,
             subrule: None,
-            rule: None,
-            prop: None,
-        }
-    }
-
-    fn set_rule_once(&mut self, rule: dsl::Rule, meta: &Meta) {
-        if self.rule.is_some() {
-            emit_error!(meta, "multiple rules specified");
-        } else {
-            self.rule = Some(rule);
         }
     }
 
@@ -421,9 +393,7 @@ fn derive_rule_named_struct(
     let mut builder = StructRuleBuilder::new(ident.clone());
 
     for field in fields.named {
-        let field_ident = field.ident.clone().unwrap();
-
-        let mut field_builder = SubruleBuilder::new(field.clone(), field_ident.clone());
+        let mut field_builder = SubruleBuilder::new(field.clone());
 
         for args in field.attrs.iter().filter_map(parse_rule_attr) {
             for (arg, meta) in args {
