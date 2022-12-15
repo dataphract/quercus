@@ -125,11 +125,14 @@ struct Block {
 }
 
 fn main() {
-    let mut builder = GrammarBuilder::new();
+    let mut builder = GrammarBuilder::new("test");
     let test = Func::emit();
 
     println!("{}", serde_json::to_string_pretty(&test).unwrap());
 
     Func::register_dependencies(&mut builder);
-    println!("{builder:#?}");
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&builder.build()).unwrap()
+    );
 }

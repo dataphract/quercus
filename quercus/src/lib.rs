@@ -22,12 +22,14 @@ pub trait Grammar {
 
 #[derive(Debug)]
 pub struct GrammarBuilder {
+    name: String,
     rules: BTreeMap<String, dsl::Rule>,
 }
 
 impl GrammarBuilder {
-    pub fn new() -> GrammarBuilder {
+    pub fn new<S: AsRef<str>>(name: S) -> GrammarBuilder {
         GrammarBuilder {
+            name: name.as_ref().into(),
             rules: BTreeMap::new(),
         }
     }
@@ -37,6 +39,18 @@ impl GrammarBuilder {
             Entry::Vacant(v) => v.insert(rule),
             Entry::Occupied(o) => panic!("multiple rules named `{name}` specified"),
         };
+    }
+
+    pub fn build(self) -> dsl::Grammar {
+        dsl::Grammar {
+            name: self.name,
+            rules: self.rules,
+            extras: vec![],
+            externals: vec![],
+            inline: vec![],
+            conflicts: vec![],
+            word: None,
+        }
     }
 }
 
