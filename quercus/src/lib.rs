@@ -36,8 +36,14 @@ impl GrammarBuilder {
 
     pub fn add_rule(&mut self, name: &str, rule: dsl::Rule) {
         match self.rules.entry(name.to_string()) {
-            Entry::Vacant(v) => v.insert(rule),
-            Entry::Occupied(o) => panic!("multiple rules named `{name}` specified"),
+            Entry::Vacant(v) => {
+                v.insert(rule);
+            }
+            Entry::Occupied(o) => {
+                if o.get() != &rule {
+                    panic!("multiple rules named `{name}` specified");
+                }
+            }
         };
     }
 
