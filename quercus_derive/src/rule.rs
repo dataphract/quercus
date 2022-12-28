@@ -253,14 +253,16 @@ impl RuleBuilder {
         let each_dep = &self.dependencies;
 
         quote_spanned! { self.ident.span() =>
-            #(#each_dep)*
-            builder.add_rule(
+            // Only register dependencies if this rule hasn't been seen before.
+            if builder.add_rule(
                 #ident_str,
                 quercus::dsl::Rule::seq(
                     core::iter::empty()
                         #(.chain(core::iter::once(#each_ast_repr)))*
                 ),
-            );
+            ) {
+                #(#each_dep)*
+            }
         }
     }
 
@@ -271,14 +273,16 @@ impl RuleBuilder {
         let each_dep = &self.dependencies;
 
         quote_spanned! { self.ident.span() =>
-            #(#each_dep)*
-            builder.add_rule(
+            // Only register dependencies if this rule hasn't been seen before.
+            if builder.add_rule(
                 #ident_str,
                 quercus::dsl::Rule::choice(
                     core::iter::empty()
                         #(.chain(core::iter::once(#each_ast_repr)))*
                 ),
-            );
+            ) {
+                #(#each_dep)*
+            }
         }
     }
 

@@ -11,7 +11,7 @@ use serde::Serialize;
 /// This serializes to a JSON object that complies with the [grammar schema][0].
 ///
 /// [0]: https://github.com/tree-sitter/tree-sitter/blob/master/cli/src/generate/grammar-schema.json
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Grammar {
     pub name: String,
 

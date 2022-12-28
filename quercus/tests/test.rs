@@ -1,4 +1,4 @@
-use quercus::{dsl, GrammarBuilder, Rule};
+use quercus::{dsl, Grammar, GrammarBuilder, Rule};
 
 fn rule_definition<T: Rule>(symbol: &str) -> dsl::Rule {
     let mut builder = GrammarBuilder::new("test");
@@ -160,4 +160,36 @@ fn test_derive_enum_tuple_variants_single_field() {
             dsl::Rule::field("Num", dsl::Rule::symbol("NumLit")),
         ]),
     );
+}
+
+#[derive(Rule)]
+enum Atom {
+    Ident(Ident),
+    Lit(Lit),
+}
+
+#[derive(Rule)]
+struct List {
+    lparen: LParen,
+    #[rule(repeat)]
+    items: Vec<Sexp>,
+    rparen: RParen,
+}
+
+#[derive(Rule)]
+enum Sexp {
+    Atom(Atom),
+    List(List),
+}
+
+#[derive(Rule, Grammar)]
+struct Lisp {
+    #[rule(repeat)]
+    exprs: Vec<Sexp>,
+}
+
+#[test]
+fn test_derive_grammar_lisp() {
+    let grammar = Lisp::grammar_dsl();
+    panic!("{grammar:#?}");
 }

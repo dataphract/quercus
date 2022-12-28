@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use proc_macro_error::emit_error;
-use quote::quote_spanned;
-use syn::{spanned::Spanned, DeriveInput, LitStr, Meta};
+use quote::{quote, quote_spanned, ToTokens};
+use syn::{spanned::Spanned, DeriveInput, Ident, LitStr, Meta};
 
 use crate::{meta_lit_str, parse_nested_metas};
 
@@ -31,13 +31,21 @@ impl GrammarAttrArg {
     }
 }
 
-#[derive(Default)]
 struct GrammarBuilder {
+    ident: Ident,
     extras: Vec<TokenStream>,
     word: Option<TokenStream>,
 }
 
 impl GrammarBuilder {
+    fn new(ident: Ident) -> GrammarBuilder {
+        GrammarBuilder {
+            ident,
+            extras: Vec::new(),
+            word: None,
+        }
+    }
+
     fn add_extra(&mut self, tokens: TokenStream) {
         self.extras.push(tokens);
     }
@@ -49,19 +57,42 @@ impl GrammarBuilder {
             self.word = Some(word);
         }
     }
+
+    fn build(self) -> TokenStream {
+        let ident = &self.ident;
+        let ident_str = ident.to_string();
+        let each_extra = &self.extras;
+        let set_word_rule = self.word.clone().map(|w| {
+            quote_spanned! { w.span() => builder.set_word_rule(#w); }
+        });
+
+        quote_spanned! { ident.span() =>
+            impl quercus::Grammar for #ident {
+                fn grammar_dsl() -> quercus::dsl::Grammar {
+                    let mut builder = quercus::GrammarBuilder::new(#ident_str);
+                    <Self as quercus::Rule>::register_dependencies(&mut builder);
+                    builder.add_rule("source_file", quercus::dsl::Rule::symbol(#ident_str));
+                    #(
+                        builder.add_extra(#each_extra);
+                    )*
+                    #set_word_rule
+                    builder.build()
+                }
+            }
+        }
+    }
 }
 
 pub fn derive_grammar(input: DeriveInput) -> TokenStream {
-    let input_span = input.span();
     let DeriveInput {
         attrs,
-        vis,
+        vis: _,
         ident,
         generics,
         data,
     } = input;
 
-    let mut builder = GrammarBuilder::default();
+    let mut builder = GrammarBuilder::new(ident.clone());
 
     for args in attrs
         .iter()
@@ -69,17 +100,21 @@ pub fn derive_grammar(input: DeriveInput) -> TokenStream {
     {
         for (arg, meta) in args {
             match arg {
-                GrammarAttrArg::Extra(lit) => builder.add_extra(quote_spanned! { meta.span() =>
-                    <#lit as quercus::Rule>::emit()
-                }),
-                GrammarAttrArg::Word(_) => todo!(),
+                GrammarAttrArg::Extra(lit) => {
+                    let Ok(ty) = lit.parse::<syn::Type>() else {
+                        emit_error!(lit, "`{}` is not a type", lit.value());
+                        continue;
+                    };
+
+                    builder.add_extra(quote_spanned! { meta.span() =>
+                        <#ty as quercus::Rule>::emit()
+                    })
+                }
+
+                GrammarAttrArg::Word(lit) => builder.set_word_once(lit.to_token_stream(), &meta),
             }
         }
     }
 
-    quote_spanned! { input_span =>
-        quercus::dsl::Grammar {
-
-        }
-    }
+    builder.build()
 }

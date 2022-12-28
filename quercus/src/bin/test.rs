@@ -1,4 +1,4 @@
-use quercus::{dsl, GrammarBuilder, Rule};
+use quercus::{dsl, Grammar, GrammarBuilder, Rule};
 
 #[derive(Rule)]
 #[rule(string = "{")]
@@ -98,15 +98,56 @@ struct Block {
     _r_brace: RBrace,
 }
 
+#[derive(Rule)]
+#[rule(string = "\"")]
+struct DoubleQuote;
+
+#[derive(Rule)]
+struct StrLit {
+    lquote: DoubleQuote,
+    #[rule(pattern = r#"[^"]*"#)]
+    text: String,
+    rquote: DoubleQuote,
+}
+
+#[derive(Rule)]
+struct NumLit {
+    #[rule(pattern = "[1-9][0-9]*")]
+    digits: String,
+}
+#[derive(Rule)]
+enum Lit {
+    Str(StrLit),
+    Num(NumLit),
+}
+
+#[derive(Rule)]
+enum Atom {
+    Ident(Ident),
+    Lit(Lit),
+}
+
+#[derive(Rule)]
+struct List {
+    lparen: LParen,
+    #[rule(repeat)]
+    items: Vec<Sexp>,
+    rparen: RParen,
+}
+
+#[derive(Rule)]
+enum Sexp {
+    Atom(Atom),
+    List(List),
+}
+
+#[derive(Rule, Grammar)]
+struct Lisp {
+    #[rule(repeat)]
+    exprs: Vec<Sexp>,
+}
+
 fn main() {
-    let mut builder = GrammarBuilder::new("test");
-    let test = Func::emit();
-
-    println!("{}", serde_json::to_string_pretty(&test).unwrap());
-
-    Func::register_dependencies(&mut builder);
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&builder.build()).unwrap()
-    );
+    let grammar = Lisp::grammar_dsl();
+    println!("{grammar:#?}");
 }

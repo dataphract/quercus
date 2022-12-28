@@ -24,6 +24,8 @@ pub trait Grammar {
 pub struct GrammarBuilder {
     name: String,
     rules: BTreeMap<String, dsl::Rule>,
+    extras: Vec<dsl::Rule>,
+    word: Option<String>,
 }
 
 impl GrammarBuilder {
@@ -31,31 +33,52 @@ impl GrammarBuilder {
         GrammarBuilder {
             name: name.as_ref().into(),
             rules: BTreeMap::new(),
+            extras: Vec::new(),
+            word: None,
         }
     }
 
-    pub fn add_rule(&mut self, name: &str, rule: dsl::Rule) {
+    /// Add a named rule to the grammar.
+    ///
+    /// Returns `true` if the rule is newly added, `false` otherwise.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is an existing rule named `name` that is not equal to `rule`.
+    pub fn add_rule(&mut self, name: &str, rule: dsl::Rule) -> bool {
         match self.rules.entry(name.to_string()) {
             Entry::Vacant(v) => {
                 v.insert(rule);
+                true
             }
+
             Entry::Occupied(o) => {
                 if o.get() != &rule {
                     panic!("multiple rules named `{name}` specified");
                 }
+
+                false
             }
-        };
+        }
+    }
+
+    pub fn add_extra(&mut self, rule: dsl::Rule) {
+        self.extras.push(rule);
+    }
+
+    pub fn set_word_rule(&mut self, word_rule: String) {
+        self.word = Some(word_rule);
     }
 
     pub fn build(self) -> dsl::Grammar {
         dsl::Grammar {
             name: self.name,
             rules: self.rules,
-            extras: vec![],
+            extras: self.extras,
             externals: vec![],
             inline: vec![],
             conflicts: vec![],
-            word: None,
+            word: self.word,
         }
     }
 }
