@@ -3,4 +3,9 @@ members = [
     "quercus",
     "quercus_derive",
     "quercus_dsl",
+    "quercus_generate",
+]
+
+exclude = [
+    "examples/*"
 ]

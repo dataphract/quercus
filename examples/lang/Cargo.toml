@@ -1,0 +1,19 @@
+[package]
+name = "lang"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = [
+    "lang_grammar",
+]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tree-sitter = "0.20.9"
+
+[build-dependencies]
+lang_grammar = { path = "lang_grammar" }
+quercus = { path = "../../quercus" }
+quercus_generate = { path = "../../quercus_generate" }

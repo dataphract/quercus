@@ -159,7 +159,7 @@ impl Rule {
     pub fn field<S: AsRef<str>>(name: S, rule: Rule) -> Rule {
         Rule::Field(FieldRule {
             name: name.as_ref().into(),
-            rule: Box::new(rule),
+            content: Box::new(rule),
         })
     }
 }
@@ -221,5 +221,5 @@ pub struct AliasRule {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct FieldRule {
     pub name: String,
-    pub rule: Box<Rule>,
+    pub content: Box<Rule>,
 }
