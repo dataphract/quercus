@@ -4,8 +4,6 @@ members = [
     "quercus_derive",
     "quercus_dsl",
     "quercus_generate",
-]
-
-exclude = [
-    "examples/*"
+    "examples/lang",
+    "examples/lang/lang_grammar",
 ]

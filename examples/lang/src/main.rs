@@ -1,11 +1,15 @@
+use quercus::Rule;
 use tree_sitter as ts;
 
-extern "C" {
-    fn tree_sitter_Lang() -> ts::Language;
+mod language {
+    include!(concat!(env!("OUT_DIR"), "/language.rs"));
 }
 
 fn main() {
-    let lang = unsafe { tree_sitter_Lang() };
+    let lang = language::language();
     let mut parser = ts::Parser::new();
     parser.set_language(lang).unwrap();
+    let tree = parser.parse("hello", None).unwrap();
+    let out = lang_grammar::Lang::from_node(&tree.root_node(), "hello");
+    println!("{:?}", out);
 }

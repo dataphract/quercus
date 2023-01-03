@@ -1,6 +1,6 @@
 use quercus::{Grammar, Rule};
 
-#[derive(Rule, Grammar)]
+#[derive(Debug, Rule, Grammar)]
 pub struct Lang {
     #[rule(string = "hello")]
     hello: String,

@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 quercus = { path = "../../../quercus" }
+tree-sitter = "0.20.9"

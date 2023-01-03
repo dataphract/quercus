@@ -10,8 +10,12 @@ use crate::{meta_lit_str, meta_path_only, parse_nested_metas};
 
 struct Rule {
     span: Span,
+    /// Rust expression evaluating to the in-AST representation of the rule.
     ast_repr: TokenStream,
+    /// Rust statement(s) registering any symbols required by the rule, including its own.
     dependencies: TokenStream,
+    /// Rust expression creating the associated type from a Tree-sitter node.
+    from_node: TokenStream,
 }
 
 impl Rule {
@@ -22,9 +26,10 @@ impl Rule {
     fn emit_impl(&self, ident: Ident) -> TokenStream {
         let ast_repr = &self.ast_repr;
         let dependencies = &self.dependencies;
+        let from_node = &self.from_node;
 
         quote_spanned! { self.span() =>
-            impl Rule for #ident {
+            impl quercus::Rule for #ident {
                 fn emit() -> quercus::dsl::Rule {
                     #ast_repr
                 }
@@ -32,11 +37,16 @@ impl Rule {
                 fn register_dependencies(builder: &mut quercus::GrammarBuilder) {
                     #dependencies
                 }
+
+                fn from_node(node: &tree_sitter::Node, src: &str) -> Self {
+                    #from_node
+                }
             }
         }
     }
 }
 
+/// `#[derive(Rule)]` entry point.
 pub fn derive_rule(input: DeriveInput) -> TokenStream {
     let span = input.span();
     let DeriveInput {
@@ -49,11 +59,11 @@ pub fn derive_rule(input: DeriveInput) -> TokenStream {
 
     match data {
         syn::Data::Struct(ds) => match &ds.fields {
-            Fields::Unit => derive_rule_unit_struct(&ident, span, attrs),
+            Fields::Unit => derive_rule_unit_struct(&ident, UnitStructKind::Unit, span, attrs),
 
             Fields::Unnamed(fields) => {
                 if fields.unnamed.is_empty() {
-                    derive_rule_unit_struct(&ident, span, attrs)
+                    derive_rule_unit_struct(&ident, UnitStructKind::Tuple, span, attrs)
                 } else {
                     abort!(
                         ds.fields,
@@ -64,7 +74,7 @@ pub fn derive_rule(input: DeriveInput) -> TokenStream {
 
             Fields::Named(fields) => {
                 if fields.named.is_empty() {
-                    derive_rule_unit_struct(&ident, span, attrs)
+                    derive_rule_unit_struct(&ident, UnitStructKind::Named, span, attrs)
                 } else {
                     derive_rule_named_struct(&ident, attrs, fields.clone())
                 }
@@ -133,16 +143,24 @@ fn parse_rule_attr(attr: &Attribute) -> Option<Vec<(RuleAttrArg, Meta)>> {
     parse_nested_metas("rule", attr, RuleAttrArg::from_meta)
 }
 
+enum UnitStructKind {
+    Named,
+    Tuple,
+    Unit,
+}
+
 struct LeafRuleBuilder {
     name: Ident,
+    kind: UnitStructKind,
     span: Span,
     rule: Option<TokenStream>,
 }
 
 impl LeafRuleBuilder {
-    fn new(ident: &Ident, span: Span) -> LeafRuleBuilder {
+    fn new(ident: &Ident, kind: UnitStructKind, span: Span) -> LeafRuleBuilder {
         LeafRuleBuilder {
             name: ident.clone(),
+            kind,
             span,
             rule: None,
         }
@@ -159,6 +177,12 @@ impl LeafRuleBuilder {
     fn build(self) -> TokenStream {
         let ident = self.name.clone();
         let name = self.name.to_string();
+
+        let expr = match self.kind {
+            UnitStructKind::Named => quote! { #ident {} },
+            UnitStructKind::Tuple => quote! { #ident() },
+            UnitStructKind::Unit => quote! { #ident },
+        };
 
         let rule = match self.rule {
             Some(r) => r,
@@ -178,13 +202,22 @@ impl LeafRuleBuilder {
                 fn register_dependencies(builder: &mut quercus::GrammarBuilder) {
                     builder.add_rule(#name, #rule);
                 }
+
+                fn from_node(node: &tree_sitter::Node, src: &str) -> Self {
+                    #expr
+                }
             }
         }
     }
 }
 
-fn derive_rule_unit_struct(ident: &Ident, span: Span, attrs: Vec<Attribute>) -> TokenStream {
-    let mut builder = LeafRuleBuilder::new(ident, span);
+fn derive_rule_unit_struct(
+    ident: &Ident,
+    kind: UnitStructKind,
+    span: Span,
+    attrs: Vec<Attribute>,
+) -> TokenStream {
+    let mut builder = LeafRuleBuilder::new(ident, kind, span);
 
     for (arg, meta) in RuleAttrArg::flat_filter(&attrs) {
         match arg {
@@ -213,44 +246,33 @@ fn derive_rule_unit_struct(ident: &Ident, span: Span, attrs: Vec<Attribute>) -> 
     builder.build()
 }
 
-struct RuleBuilder {
+struct StructRuleBuilder {
     ident: Ident,
 
-    // `builder.register_dependencies(...)` for each field or variant.
-    dependencies: Vec<TokenStream>,
-
-    // In-AST representations of all subrules.
-    ast_reprs: Vec<TokenStream>,
+    named: FieldsNamedBuilder,
 }
 
-impl RuleBuilder {
-    fn new(ident: Ident) -> RuleBuilder {
-        RuleBuilder {
-            ident,
-            dependencies: Vec::new(),
-            ast_reprs: Vec::new(),
+impl StructRuleBuilder {
+    fn new(ident: Ident) -> StructRuleBuilder {
+        StructRuleBuilder {
+            ident: ident.clone(),
+            named: FieldsNamedBuilder::new(ident.span(), ident.to_token_stream()),
         }
     }
 
-    fn add_subrule(&mut self, builder: SubruleBuilder) {
-        self.dependencies.push(builder.register_dependencies_impl());
-        self.ast_reprs.push(builder.ast_repr());
+    fn add_field(&mut self, field: &Field, subrule: SubruleBuilder) {
+        self.named.add_field(field, subrule);
     }
 
-    fn ast_repr_symbol(&self) -> TokenStream {
-        let ident = &self.ident;
-        let ident_str = ident.to_string();
-
-        quote_spanned! { self.ident.span() =>
-            quercus::dsl::Rule::symbol(#ident_str)
-        }
+    fn ast_repr(&self) -> TokenStream {
+        self.named.ast_repr()
     }
 
-    fn dependencies_struct(&self) -> TokenStream {
+    fn dependencies(&self) -> TokenStream {
         let ident = &self.ident;
         let ident_str = ident.to_string();
-        let each_ast_repr = &self.ast_reprs;
-        let each_dep = &self.dependencies;
+        let each_ast_repr = &self.named.ast_reprs;
+        let each_dep = &self.named.dependencies;
 
         quote_spanned! { self.ident.span() =>
             // Only register dependencies if this rule hasn't been seen before.
@@ -266,7 +288,105 @@ impl RuleBuilder {
         }
     }
 
-    fn dependencies_enum(&self) -> TokenStream {
+    fn from_node_impl(&self) -> TokenStream {
+        self.named.from_node_impl()
+    }
+
+    /// Builds the rule as a named sequence rule.
+    fn build(self) -> Rule {
+        Rule {
+            span: self.ident.span(),
+            ast_repr: self.ast_repr(),
+            dependencies: self.dependencies(),
+            from_node: self.from_node_impl(),
+        }
+    }
+}
+
+struct EnumRuleBuilder {
+    ident: Ident,
+
+    // `builder.register_dependencies(...)` for each field or variant.
+    dependencies: Vec<TokenStream>,
+
+    // In-AST representations of all subrules.
+    ast_reprs: Vec<TokenStream>,
+
+    // Match branches to construct each variant.
+    from_node: Vec<TokenStream>,
+}
+
+impl EnumRuleBuilder {
+    fn new(ident: Ident) -> EnumRuleBuilder {
+        EnumRuleBuilder {
+            ident,
+            dependencies: Vec::new(),
+            ast_reprs: Vec::new(),
+            from_node: Vec::new(),
+        }
+    }
+
+    fn add_variant_named(&mut self, ident: Ident, named: FieldsNamedBuilder) {
+        self.dependencies.extend(named.dependencies.iter().cloned());
+
+        let ident_str = ident.to_string();
+        let ast_repr = named.ast_repr();
+        self.ast_reprs.push(quote_spanned! { ident.span() =>
+            quercus::dsl::Rule::field(#ident_str, #ast_repr)
+        });
+
+        let from_node = named.from_node_impl();
+        self.from_node.push(quote_spanned! { ident.span() =>
+            #ident_str => { #from_node }
+        });
+    }
+
+    fn add_variant_unnamed(&mut self, ident: Ident, unnamed: FieldsUnnamedBuilder) {
+        self.dependencies
+            .extend(unnamed.dependencies.iter().cloned());
+
+        let ident_str = ident.to_string();
+        let ast_repr = unnamed.ast_repr();
+        self.ast_reprs.push(quote_spanned! { ident.span() =>
+            quercus::dsl::Rule::field(#ident_str, #ast_repr)
+        });
+
+        let from_node = unnamed.from_node_impl();
+        self.from_node.push(quote_spanned! { ident.span() =>
+            #ident_str => { #from_node }
+        });
+    }
+
+    fn add_variant_single(&mut self, ident: Ident, subrule: SubruleBuilder) {
+        self.dependencies.push(subrule.register_dependencies_impl());
+
+        let ident_str = ident.to_string();
+        let ast_repr = subrule.ast_repr();
+        self.ast_reprs.push(quote_spanned! { ident.span() =>
+            quercus::dsl::Rule::field(#ident_str, #ast_repr)
+        });
+
+        let from_node = subrule.from_node_impl();
+        self.from_node.push(quote_spanned! { ident.span() =>
+            #ident_str => { #from_node }
+        });
+    }
+
+    fn add_variant(&mut self, builder: SubruleBuilder) {
+        self.dependencies.push(builder.register_dependencies_impl());
+        self.ast_reprs.push(builder.ast_repr());
+    }
+
+    fn ast_repr_symbol(&self) -> TokenStream {
+        let ident = &self.ident;
+        let ident_str = ident.to_string();
+
+        quote_spanned! { self.ident.span() =>
+            quercus::dsl::Rule::symbol(#ident_str)
+        }
+    }
+
+    fn dependencies(&self) -> TokenStream {
         let ident = &self.ident;
         let ident_str = ident.to_string();
         let each_ast_repr = &self.ast_reprs;
@@ -286,36 +406,24 @@ impl RuleBuilder {
         }
     }
 
-    /// Builds the rule as a named sequence rule.
-    fn build_struct_symbol(self) -> Rule {
-        Rule {
-            span: self.ident.span(),
-            ast_repr: self.ast_repr_symbol(),
-            dependencies: self.dependencies_struct(),
-        }
-    }
+    fn from_node_impl(&self) -> TokenStream {
+        let each_branch = &self.from_node;
 
-    fn build_struct_inline(self) -> Rule {
-        let each_ast_repr = &self.ast_reprs;
-
-        Rule {
-            span: self.ident.span(),
-            ast_repr: quote_spanned! { self.ident.span() =>
-                quercus::dsl::Rule::seq(
-                    core::iter::empty()
-                        #(.chain(core::iter::once(#each_ast_repr)))*
-                )
-            },
-            dependencies: TokenStream::new(),
+        quote! {
+            match node.kind() {
+                #(#each_branch),*
+                other => panic!("`{other}` is not a subrule"),
+            }
         }
     }
 
     /// Builds the rule as a named choice rule.
-    fn build_enum_symbol(self) -> Rule {
+    fn build_symbol(self) -> Rule {
         Rule {
             span: self.ident.span(),
             ast_repr: self.ast_repr_symbol(),
-            dependencies: self.dependencies_enum(),
+            dependencies: self.dependencies(),
+            from_node: self.from_node_impl(),
         }
     }
 }
@@ -331,11 +439,6 @@ enum SubruleKind {
     ///
     /// This is the case if the subrule is of a named (non-repeat) type.
     Symbol(TypePath),
-    /// The subrule is defined inline.
-    ///
-    /// This is the case for struct and tuple variants, which correspond to composite rules but have
-    /// no associated symbol.
-    Inline(Rule),
     /// The subrule is a sequence rule.
     ///
     /// This is the case for subrules of tuple type.
@@ -354,46 +457,15 @@ enum SubruleKind {
     Repeat1(Type),
 }
 
-/// A struct field or enum variant.
-enum Contents {
-    Field(Field),
-    Variant(Variant),
-}
-
-impl Contents {
-    fn ident(&self) -> Option<&Ident> {
-        match self {
-            Contents::Field(f) => f.ident.as_ref(),
-            Contents::Variant(v) => Some(&v.ident),
-        }
-    }
-}
-
-impl ToTokens for Contents {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        match self {
-            Contents::Field(f) => f.to_tokens(tokens),
-            Contents::Variant(v) => v.to_tokens(tokens),
-        }
-    }
-}
-
 struct SubruleBuilder {
-    contents: Contents,
+    field: Field,
     subrule: Option<SubruleKind>,
 }
 
 impl SubruleBuilder {
     fn field(field: Field) -> SubruleBuilder {
         SubruleBuilder {
-            contents: Contents::Field(field),
-            subrule: None,
-        }
-    }
-
-    fn variant(variant: Variant) -> SubruleBuilder {
-        SubruleBuilder {
-            contents: Contents::Variant(variant),
+            field,
             subrule: None,
         }
     }
@@ -424,13 +496,6 @@ impl SubruleBuilder {
                 }
             }
 
-            Some(SubruleKind::Inline(rule)) => {
-                let ast_repr = &rule.ast_repr;
-                quote_spanned! { rule.span() =>
-                    #ast_repr
-                }
-            }
-
             Some(SubruleKind::Seq(tup)) => {
                 quote_spanned! { tup.span() =>
                     <#tup as quercus::Rule>::emit()
@@ -457,15 +522,15 @@ impl SubruleBuilder {
             }
 
             None => {
-                emit_error!(self.contents, "no rule specified for this field");
-                quote_spanned! { self.contents.span() => unimplemented!() }
+                emit_error!(self.field, "no rule specified for this field");
+                quote_spanned! { self.field.span() => unimplemented!() }
             }
         };
 
-        match self.contents.ident() {
+        match &self.field.ident {
             Some(ident) => {
                 let ident_str = ident.to_string();
-                quote_spanned! { self.contents.span() =>
+                quote_spanned! { self.field.span() =>
                     quercus::dsl::Rule::field(#ident_str, #inner)
                 }
             }
@@ -481,34 +546,14 @@ impl SubruleBuilder {
                 }
             }
 
-            Some(SubruleKind::Inline(rule)) => {
-                let deps = &rule.dependencies;
-                quote_spanned! { rule.span() =>
-                    #deps
-                }
-            }
-
             Some(SubruleKind::Seq(tup)) => {
                 let each_elem = tup.elems.iter();
-                quote_spanned! { self.contents.span() =>
+                quote_spanned! { self.field.span() =>
                     #(<#each_elem as quercus::Rule>::register_dependencies(builder);)*
                 }
             }
 
-            Some(SubruleKind::Leaf(leaf)) => {
-                let field_ty = &leaf.ty;
-
-                let from_str_check = (!is_unit(&leaf.ty)).then(|| {
-                    quote_spanned! { self.contents.span() =>
-                        fn _from_str<T: core::str::FromStr>() {}
-                        _from_str::<#field_ty>();
-                    }
-                });
-
-                quote_spanned! { self.contents.span() =>
-                    #from_str_check
-                }
-            }
+            Some(SubruleKind::Leaf(leaf)) => TokenStream::new(),
 
             Some(SubruleKind::Repeat(ty)) => {
                 quote_spanned! { ty.span() =>
@@ -523,8 +568,57 @@ impl SubruleBuilder {
             }
 
             None => {
-                emit_error!(self.contents, "no rule specified for this field");
-                quote_spanned! { self.contents.span() => unimplemented!() }
+                emit_error!(self.field, "no rule specified for this field");
+                quote_spanned! { self.field.span() => unimplemented!() }
+            }
+        }
+    }
+
+    fn from_node_impl(&self) -> TokenStream {
+        match &self.subrule {
+            Some(SubruleKind::Symbol(ty_path)) => {
+                quote_spanned! { ty_path.span() =>
+                    <ty_path as quercus::Rule>::from_node(node, src)
+                }
+            }
+
+            Some(SubruleKind::Seq(tup)) => {
+                quote_spanned! { tup.span() =>
+                    <#tup as quercus::Rule>::from_node(node, src)
+                }
+            }
+
+            Some(SubruleKind::Leaf(leaf)) => {
+                let field_ty = &leaf.ty;
+
+                let from_str = (!is_unit(&leaf.ty)).then(|| {
+                    quote_spanned! { self.field.span() =>
+                        let range = node.byte_range();
+                        let snippet = &src[range];
+                        <#field_ty as core::str::FromStr>::from_str(snippet).unwrap()
+                    }
+                });
+
+                quote_spanned! { self.field.span() =>
+                    #from_str
+                }
+            }
+
+            Some(SubruleKind::Repeat(ty)) => {
+                quote_spanned! { ty.span() =>
+                    todo!("from_node is not implemented for Repeat")
+                }
+            }
+
+            Some(SubruleKind::Repeat1(ty)) => {
+                quote_spanned! { ty.span() =>
+                    todo!()
+                }
+            }
+
+            None => {
+                emit_error!(self.field, "no rule specified for this field");
+                quote_spanned! { self.field.span() => unimplemented!() }
             }
         }
     }
@@ -607,13 +701,14 @@ fn derive_rule_named_struct(
         emit_error!(&meta, "option not supported on structs with named fields");
     }
 
-    let mut builder = RuleBuilder::new(ident.clone());
+    let mut builder = StructRuleBuilder::new(ident.clone());
 
     for field in fields.named {
-        builder.add_subrule(derive_rule_field(field));
+        let rule = derive_rule_field(field.clone());
+        builder.add_field(&field, rule);
     }
 
-    builder.build_struct_symbol().emit_impl(ident.clone())
+    builder.build().emit_impl(ident.clone())
 }
 
 fn derive_rule_enum(
@@ -626,57 +721,78 @@ fn derive_rule_enum(
         emit_error!(&meta, "option not supported on enums");
     }
 
-    let mut builder = RuleBuilder::new(ident.clone());
+    let mut builder = EnumRuleBuilder::new(ident.clone());
 
     for variant in variants {
-        let vb = match &variant.fields {
-            Fields::Named(fs) => derive_rule_seq_variant(variant),
-            Fields::Unnamed(fs) => {
-                if fs.unnamed.len() == 1 {
-                    derive_rule_single_variant(variant)
+        match &variant.fields {
+            Fields::Named(named) => {
+                let var_ident = &variant.ident;
+                let mut vb =
+                    FieldsNamedBuilder::new(variant.span(), quote! { #ident :: #var_ident });
+
+                for field in &named.named {
+                    vb.add_field(field, derive_rule_field(field.clone()));
+                }
+
+                builder.add_variant_named(variant.ident.clone(), vb);
+            }
+
+            Fields::Unnamed(unnamed) => {
+                if unnamed.unnamed.len() == 1 {
+                    builder.add_variant_single(
+                        variant.ident.clone(),
+                        derive_rule_field(unnamed.unnamed[0].clone()),
+                    );
                 } else {
-                    derive_rule_seq_variant(variant)
+                    let var_ident = &variant.ident;
+                    let mut vb =
+                        FieldsUnnamedBuilder::new(variant.span(), quote! { #ident :: #var_ident });
+
+                    for (idx, field) in unnamed.unnamed.iter().enumerate() {
+                        vb.add_field(idx, field, derive_rule_field(field.clone()));
+                    }
+
+                    builder.add_variant_unnamed(variant.ident.clone(), vb);
                 }
             }
-            Fields::Unit => derive_rule_unit_variant(variant),
-        };
-
-        builder.add_subrule(vb);
-    }
-
-    builder.build_enum_symbol().emit_impl(ident.clone())
-}
-
-fn derive_rule_unit_variant(variant: Variant) -> SubruleBuilder {
-    assert!(matches!(variant.fields, Fields::Unit));
-
-    let mut builder = SubruleBuilder::variant(variant.clone());
-
-    for (arg, meta) in RuleAttrArg::flat_filter(&variant.attrs) {
-        match arg {
-            RuleAttrArg::String(lit) => builder.set_subrule_once(SubruleKind::Leaf(SubruleLeaf {
-                rule_meta: meta.clone(),
-                ty: syn::parse2(quote! { () }).unwrap(),
-                rule_impl: quote_spanned! { meta.span() =>
-                    quercus::dsl::Rule::string(#lit)
-                },
-            })),
-
-            RuleAttrArg::Pattern(lit) => builder.set_subrule_once(SubruleKind::Leaf(SubruleLeaf {
-                rule_meta: meta.clone(),
-                ty: syn::parse2(quote! { () }).unwrap(),
-                rule_impl: quote_spanned! { meta.span() =>
-                    quercus::dsl::Rule::pattern(#lit)
-                },
-            })),
-
-            _ => {
-                emit_error!(&meta, "option not supported on unit variants");
-            }
+            Fields::Unit => todo!(),
         }
     }
 
-    builder
+    builder.build_symbol().emit_impl(ident.clone())
+}
+
+fn from_node_impl_variant(ident: &Ident, variant: &Variant) -> TokenStream {
+    let variant_ident = &variant.ident;
+    let path_in_expr = quote_spanned! { variant.span() =>
+        #ident :: #variant_ident
+    };
+
+    match &variant.fields {
+        Fields::Named(named) => {
+            let mut builder = FieldsNamedBuilder::new(variant.span(), path_in_expr);
+
+            for field in &named.named {
+                let subrule = derive_rule_field(field.clone());
+                builder.add_field(&field, subrule);
+            }
+
+            todo!()
+        }
+
+        Fields::Unnamed(unnamed) => {
+            let mut builder = FieldsUnnamedBuilder::new(variant.span(), path_in_expr);
+
+            for (idx, field) in unnamed.unnamed.iter().enumerate() {
+                let subrule = derive_rule_field(field.clone());
+                builder.add_field(idx, &field, subrule);
+            }
+
+            todo!()
+        }
+
+        Fields::Unit => todo!(),
+    }
 }
 
 /// Special case for tuple variants with only one field.
@@ -685,7 +801,7 @@ fn derive_rule_single_variant(variant: Variant) -> SubruleBuilder {
         unreachable!("called derive_rule_single_variant on a non-tuple variant");
     };
 
-    for (arg, meta) in RuleAttrArg::flat_filter(&variant.attrs) {
+    for (_arg, meta) in RuleAttrArg::flat_filter(&variant.attrs) {
         emit_error!(&meta, "option not supported on struct or tuple variants");
     }
 
@@ -697,27 +813,134 @@ fn derive_rule_single_variant(variant: Variant) -> SubruleBuilder {
     })
 }
 
-fn derive_rule_seq_variant(variant: Variant) -> SubruleBuilder {
-    let fields = match &variant.fields {
-        Fields::Named(fs) => &fs.named,
-        Fields::Unnamed(fs) => &fs.unnamed,
-        Fields::Unit => unreachable!("called derive_rule_seq_variant on a unit variant"),
-    };
+struct FieldsNamedBuilder {
+    span: Span,
 
-    for (arg, meta) in RuleAttrArg::flat_filter(&variant.attrs) {
-        emit_error!(&meta, "option not supported on struct or tuple variants");
+    // `builder.register_dependencies(...)` for each field or variant.
+    dependencies: Vec<TokenStream>,
+
+    // In-AST representations of all fields.
+    ast_reprs: Vec<TokenStream>,
+
+    path_in_expr: TokenStream,
+    each_field_from_node: Vec<TokenStream>,
+}
+
+impl FieldsNamedBuilder {
+    fn new(span: Span, path_in_expr: TokenStream) -> FieldsNamedBuilder {
+        FieldsNamedBuilder {
+            span,
+            dependencies: Vec::new(),
+            ast_reprs: Vec::new(),
+            path_in_expr,
+            each_field_from_node: Vec::new(),
+        }
     }
 
-    let mut builder = RuleBuilder::new(variant.ident.clone());
+    fn add_field(&mut self, field: &Field, subrule: SubruleBuilder) {
+        self.dependencies.push(subrule.register_dependencies_impl());
+        self.ast_reprs.push(subrule.ast_repr());
 
-    for field in fields {
-        builder.add_subrule(derive_rule_field(field.clone()));
+        let ident = field.ident.clone().unwrap();
+        let ident_str = ident.to_string();
+
+        let from_node_impl = subrule.from_node_impl();
+
+        self.each_field_from_node
+            .push(quote_spanned! { field.span() =>
+                #ident: {
+                    let node = node.child_by_field_name(#ident_str).unwrap();
+                    #from_node_impl
+                }
+            });
     }
 
-    let subrule = builder.build_struct_inline();
+    fn ast_repr(&self) -> TokenStream {
+        let each_ast_repr = &self.ast_reprs;
 
-    let mut builder = SubruleBuilder::variant(variant.clone());
-    builder.set_subrule_once(SubruleKind::Inline(subrule));
+        quote_spanned! { self.span =>
+            quercus::dsl::Rule::seq([
+                #(
+                    #each_ast_repr
+                ),*
+            ])
+        }
+    }
 
-    builder
+    fn from_node_impl(&self) -> TokenStream {
+        let path_in_expr = &self.path_in_expr;
+        let each_field_from_node = &self.each_field_from_node;
+
+        quote_spanned! { self.span =>
+            #path_in_expr {
+                #(#each_field_from_node),*
+            }
+        }
+    }
+}
+
+struct FieldsUnnamedBuilder {
+    span: Span,
+
+    // `builder.register_dependencies(...)` for each field or variant.
+    dependencies: Vec<TokenStream>,
+
+    // In-AST representations of all fields.
+    ast_reprs: Vec<TokenStream>,
+
+    // Path used when instantiating a value of this type.
+    //
+    // For structs, this is the name of the struct. For enum variants, this is the path of the
+    // variant.
+    path_in_expr: TokenStream,
+    each_field_from_node: Vec<TokenStream>,
+}
+
+impl FieldsUnnamedBuilder {
+    fn new(span: Span, path_in_expr: TokenStream) -> FieldsUnnamedBuilder {
+        FieldsUnnamedBuilder {
+            span,
+            dependencies: Vec::new(),
+            ast_reprs: Vec::new(),
+            path_in_expr,
+            each_field_from_node: Vec::new(),
+        }
+    }
+
+    fn add_field(&mut self, idx: usize, field: &Field, subrule: SubruleBuilder) {
+        self.dependencies.push(subrule.register_dependencies_impl());
+        self.ast_reprs.push(subrule.ast_repr());
+
+        let ident_str = idx.to_string();
+        let from_node_impl = subrule.from_node_impl();
+
+        self.each_field_from_node
+            .push(quote_spanned! { field.span() =>
+                {
+                    let node = node.child_by_field_name(#ident_str).unwrap();
+                    #from_node_impl
+                }
+            });
+    }
+
+    fn ast_repr(&self) -> TokenStream {
+        let each_ast_repr = &self.ast_reprs;
+
+        quote_spanned! { self.span =>
+            quercus::dsl::Rule::seq([
+                #(#each_ast_repr),*
+            ])
+        }
+    }
+
+    fn from_node_impl(&self) -> TokenStream {
+        let path_in_expr = &self.path_in_expr;
+        let each_field_from_node = &self.each_field_from_node;
+
+        quote_spanned! { self.span =>
+            #path_in_expr (
+                #(#each_field_from_node),*
+            )
+        }
+    }
 }

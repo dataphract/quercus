@@ -7,6 +7,6 @@ struct MyLang {
 }
 
 fn main() {
-    quercus_generate::generate(&MyLang::grammar_dsl(), ".");
+    quercus_generate::generate(&MyLang::grammar_dsl(), "language.rs");
     //println!("{:#?}", MyLang::grammar_dsl());
 }

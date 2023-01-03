@@ -2,7 +2,6 @@ use std::collections::{btree_map::Entry, BTreeMap};
 
 use tree_sitter as ts;
 
-#[macro_use]
 extern crate quercus_derive;
 
 pub use quercus_derive::*;
@@ -83,7 +82,7 @@ impl GrammarBuilder {
     }
 }
 
-pub trait Rule {
+pub trait Rule: Sized {
     /// Emits the DSL representation of this rule.
     ///
     /// If the rule should appear as a symbol in the complete grammar, this method should be
@@ -95,7 +94,15 @@ pub trait Rule {
     ///
     /// If any of this rule's subrules are of type `Rule::Symbol`, then this method must be
     /// implemented to register the associated name with `builder`.
-    fn register_dependencies(builder: &mut GrammarBuilder) {}
+    fn register_dependencies(builder: &mut GrammarBuilder) {
+        let _ = builder;
+    }
+
+    fn from_node(node: &ts::Node, src: &str) -> Self {
+        let _ = node;
+        let _ = src;
+        todo!()
+    }
 }
 
 impl<R: Rule> Rule for Option<R> {
@@ -105,6 +112,10 @@ impl<R: Rule> Rule for Option<R> {
 
     fn register_dependencies(builder: &mut GrammarBuilder) {
         R::register_dependencies(builder)
+    }
+
+    fn from_node(node: &ts::Node, src: &str) -> Self {
+        Some(R::from_node(node, src))
     }
 }
 
